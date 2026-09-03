@@ -1,0 +1,149 @@
+@import "tailwindcss";
+
+/* ---------------------------------------------------------------------------
+ * Design tokens
+ * A calm, editorial "study" palette — deep ink, warm paper, a single confident
+ * accent (terracotta/clay) instead of primary-color-soup. Deliberately not
+ * Duolingo-green-and-cartoon: quieter, denser, more like a well-typeset book
+ * than a game.
+ * ------------------------------------------------------------------------- */
+:root {
+  --background: #faf8f5;
+  --foreground: #1c1a17;
+  --card: #ffffff;
+  --card-foreground: #1c1a17;
+  --popover: #ffffff;
+  --popover-foreground: #1c1a17;
+
+  --primary: #b5502f;
+  --primary-foreground: #fff8f4;
+  --secondary: #eee8de;
+  --secondary-foreground: #3a352c;
+  --muted: #f1ede5;
+  --muted-foreground: #756d5f;
+  --accent: #2c5a54;
+  --accent-foreground: #f2fbf9;
+
+  --success: #2f7a4f;
+  --success-foreground: #f2fbf5;
+  --warning: #b6811f;
+  --warning-foreground: #fffaf0;
+  --destructive: #b3392c;
+  --destructive-foreground: #fff5f3;
+
+  --border: #e4ddd0;
+  --input: #e4ddd0;
+  --ring: #b5502f;
+
+  --radius: 0.75rem;
+
+  /* CEFR level colors */
+  --level-a0: #9c9384;
+  --level-a1: #4d8a63;
+  --level-a2: #2c5a54;
+  --level-b1: #2f6690;
+  --level-b2: #5b4c9c;
+  --level-c1: #a04a8f;
+  --level-c2: #b5502f;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #16140f;
+    --foreground: #f3efe6;
+    --card: #1e1b15;
+    --card-foreground: #f3efe6;
+    --popover: #1e1b15;
+    --popover-foreground: #f3efe6;
+
+    --primary: #e2734b;
+    --primary-foreground: #201209;
+    --secondary: #2a251c;
+    --secondary-foreground: #e9e2d4;
+    --muted: #241f18;
+    --muted-foreground: #a89d89;
+    --accent: #5aa89a;
+    --accent-foreground: #0c1b18;
+
+    --success: #4fae76;
+    --success-foreground: #072712;
+    --warning: #d9a441;
+    --warning-foreground: #2a1d02;
+    --destructive: #e2604e;
+    --destructive-foreground: #2a0906;
+
+    --border: #322c22;
+    --input: #322c22;
+    --ring: #e2734b;
+  }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 0.35rem);
+  --radius-md: calc(var(--radius) - 0.15rem);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 0.35rem);
+  --font-sans: var(--font-sans);
+  --font-serif: var(--font-serif);
+}
+
+* {
+  border-color: var(--border);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--primary) 25%, transparent);
+}
+
+.font-serif-display {
+  font-family: var(--font-serif), ui-serif, Georgia, serif;
+}
+
+/* Focus visibility, kept consistent across custom interactive elements */
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-fade-in {
+  animation: fade-in 0.25s ease-out;
+}

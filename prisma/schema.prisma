@@ -1,0 +1,910 @@
+// ============================================================================
+// Spanish Learning Platform — Database Schema
+// ----------------------------------------------------------------------------
+// Design notes:
+// - Content (Course/Level/Module/Lesson/Exercise/Vocabulary/Grammar/Stories)
+//   is fully separated from per-user learning data (Progress/Vocabulary
+//   mastery/Mistakes/Reviews/Assessments), per the product spec.
+// - JSON columns are used only where structure is genuinely heterogeneous
+//   (exercise payloads, AI evaluation output, story branching). Everything
+//   else is modeled relationally.
+// - Auth uses a JWT session strategy (no NextAuth adapter tables) with a
+//   Credentials provider backed directly by the User/PasswordCredential
+//   models below.
+// ============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum CEFRLevel {
+  A0
+  A1
+  A2
+  B1
+  B2
+  C1
+  C2
+}
+
+enum SkillType {
+  GRAMMAR
+  VOCABULARY
+  READING
+  LISTENING
+  WRITING
+  SPEAKING
+}
+
+enum LearningGoalType {
+  TRAVEL
+  WORK
+  CONVERSATION
+  MOVING
+  SCHOOL
+  EXAMS
+  HOBBIES
+  FLUENCY
+}
+
+enum SpanishRegion {
+  SPAIN
+  MEXICO
+  ARGENTINA
+  COLOMBIA
+  LATAM_GENERAL
+}
+
+enum ImmersionLevel {
+  ENGLISH_ASSISTANCE
+  SPANISH_AND_ENGLISH
+  SPANISH_MINIMAL_ASSISTANCE
+  SPANISH_ONLY
+}
+
+enum LessonType {
+  VOCABULARY
+  GRAMMAR
+  MIXED
+  LISTENING
+  WRITING
+  SPEAKING
+  CONVERSATION
+  READING
+}
+
+enum ExerciseType {
+  MULTIPLE_CHOICE
+  FLASHCARD
+  MATCHING
+  TRANSLATION
+  FILL_BLANK
+  CONTEXTUAL_SELECT
+  SENTENCE_TRANSFORM
+  ERROR_CORRECTION
+  TENSE_SELECT
+  SENTENCE_ORDER
+  READING_COMPREHENSION
+  LISTENING_COMPREHENSION
+  DICTATION
+  MISSING_WORD
+  WRITING_PROMPT
+  SPEAKING_PROMPT
+}
+
+enum ConfidenceLevel {
+  NOT_SURE
+  SOMEWHAT_SURE
+  VERY_SURE
+}
+
+enum MistakeCategory {
+  GRAMMAR
+  VOCABULARY
+  WORD_ORDER
+  PREPOSITION
+  CONJUGATION
+  GENDER
+  LISTENING
+  WRITING
+  PRONUNCIATION
+}
+
+enum MistakeSourceType {
+  EXERCISE
+  WRITING
+  SPEAKING
+  LISTENING
+  CONVERSATION
+  PLACEMENT_TEST
+}
+
+enum ReviewItemType {
+  VOCABULARY
+  GRAMMAR
+  MISTAKE
+  COLLOCATION
+}
+
+enum VocabStatus {
+  NEW
+  LEARNING
+  REVIEW
+  MASTERED
+}
+
+enum SessionActivityType {
+  DAILY
+  LESSON
+  REVIEW
+  PRACTICE
+  ASSESSMENT
+  CONVERSATION
+  STORY
+  LISTENING
+  WRITING
+  SPEAKING
+}
+
+enum AssessmentType {
+  PLACEMENT
+  LEVEL_COMPLETION
+  PROGRESS_CHECK
+}
+
+enum ConversationRole {
+  USER
+  ASSISTANT
+  SYSTEM
+}
+
+enum ListeningSpeed {
+  SLOW
+  NORMAL
+  NATURAL
+}
+
+enum ContentImportSource {
+  ARTICLE
+  YOUTUBE_TRANSCRIPT
+  VIDEO_TRANSCRIPT
+  MOVIE_DIALOGUE
+  PODCAST_TRANSCRIPT
+  NEWS
+  OTHER
+}
+
+// ---------------------------------------------------------------------------
+// Identity & Auth
+// ---------------------------------------------------------------------------
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  emailVerified DateTime?
+  name          String?
+  image         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  passwordHash String
+
+  profile             Profile?
+  skillProfile        SkillProfile?
+  progress             UserProgress?
+  userLevels           UserLevel[]
+  learningGoals        UserLearningGoal[]
+  vocabulary           UserVocabulary[]
+  grammarProgress      UserGrammarProgress[]
+  mistakes             Mistake[]
+  reviewItems          ReviewItem[]
+  exerciseAttempts     ExerciseAttempt[]
+  conversations        Conversation[]
+  learningSessions     LearningSession[]
+  achievements         UserAchievement[]
+  assessments          Assessment[]
+  storyProgress        UserStoryProgress[]
+  writingSubmissions   WritingSubmission[]
+  listeningAttempts    ListeningAttempt[]
+  speakingAttempts     SpeakingAttempt[]
+  contentImports       ContentImport[]
+  generatedLessons     GeneratedLesson[]
+
+  @@index([email])
+}
+
+/// Onboarding & account-level profile settings
+model Profile {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  onboardingCompleted Boolean       @default(false)
+  selfReportedLevel   CEFRLevel?
+  region              SpanishRegion @default(LATAM_GENERAL)
+  dailyGoalMinutes    Int           @default(10)
+  focusAreas          SkillType[]
+  immersionLevel      ImmersionLevel @default(SPANISH_AND_ENGLISH)
+  correctionStyle     String        @default("after") // "after" | "immediate"
+  notificationsEnabled Boolean      @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model UserLearningGoal {
+  id     String           @id @default(cuid())
+  userId String
+  user   User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  goal   LearningGoalType
+  createdAt DateTime @default(now())
+
+  @@unique([userId, goal])
+}
+
+/// Historical record of overall level changes (placement test, assessments, manual override)
+model UserLevel {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  level     CEFRLevel
+  subLevel  Float     @default(0) // 0.0 - 0.9 fractional progress within the level
+  source    String    // "placement_test" | "assessment" | "manual_override" | "system"
+  createdAt DateTime  @default(now())
+
+  @@index([userId, createdAt])
+}
+
+/// Live, continuously-updated per-skill mastery profile driving adaptive learning
+model SkillProfile {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  overallLevel CEFRLevel @default(A0)
+  overallSub   Float     @default(0)
+
+  grammarLevel    CEFRLevel @default(A0)
+  grammarSub      Float     @default(0)
+  vocabularyLevel CEFRLevel @default(A0)
+  vocabularySub   Float     @default(0)
+  readingLevel    CEFRLevel @default(A0)
+  readingSub      Float     @default(0)
+  listeningLevel  CEFRLevel @default(A0)
+  listeningSub    Float     @default(0)
+  writingLevel    CEFRLevel @default(A0)
+  writingSub      Float     @default(0)
+  speakingLevel   CEFRLevel @default(A0)
+  speakingSub     Float     @default(0)
+
+  updatedAt DateTime @updatedAt
+}
+
+// ---------------------------------------------------------------------------
+// Content hierarchy: Course > CourseLevel > Module > Lesson > Exercise
+// ---------------------------------------------------------------------------
+
+model CourseLevel {
+  id          String    @id @default(cuid())
+  level       CEFRLevel @unique
+  title       String
+  description String
+  order       Int       @unique
+
+  modules Module[]
+
+  @@index([order])
+}
+
+model Module {
+  id            String      @id @default(cuid())
+  courseLevelId String
+  courseLevel   CourseLevel @relation(fields: [courseLevelId], references: [id], onDelete: Cascade)
+  slug          String      @unique
+  title         String
+  description   String
+  order         Int
+
+  lessons        Lesson[]
+  grammarTopics  GrammarTopic[]
+
+  @@index([courseLevelId, order])
+}
+
+model Lesson {
+  id       String     @id @default(cuid())
+  moduleId String
+  module   Module     @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  slug     String     @unique
+  title    String
+  type     LessonType
+  order    Int
+
+  /// Learn-stage content: explanation copy + worked examples
+  explanation String
+  examples    Json // Array<{ es: string; en: string; note?: string }>
+
+  cefrLevel CEFRLevel
+  skillTags SkillType[]
+  estimatedMinutes Int @default(8)
+
+  exercises Exercise[]
+
+  @@index([moduleId, order])
+}
+
+model Exercise {
+  id       String       @id @default(cuid())
+  lessonId String?
+  lesson   Lesson?      @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  type        ExerciseType
+  cefrLevel   CEFRLevel
+  skillTag    SkillType
+  difficulty  Int          @default(1) // 1-10 fine-grained difficulty within CEFR level
+  prompt      String
+  /// Type-specific payload validated against the ExerciseSchema (lib/exercises/schemas.ts)
+  /// before ever being persisted or shown, whether authored or AI-generated.
+  data        Json
+  explanation String
+
+  stage String @default("independent_practice") // "guided_practice" | "independent_practice" | "production"
+
+  isAiGenerated Boolean @default(false)
+  sourceGeneratedLessonId String?
+
+  createdAt DateTime @default(now())
+
+  attempts ExerciseAttempt[]
+
+  @@index([lessonId])
+  @@index([cefrLevel, skillTag])
+}
+
+model ExerciseAttempt {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  exerciseId String
+  exercise   Exercise @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
+
+  userAnswer Json
+  isCorrect  Boolean
+  confidence ConfidenceLevel?
+  timeSpentMs Int?
+
+  sessionId String?
+  learningSession LearningSession? @relation(fields: [sessionId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([exerciseId])
+}
+
+// ---------------------------------------------------------------------------
+// Vocabulary
+// ---------------------------------------------------------------------------
+
+model Vocabulary {
+  id            String    @id @default(cuid())
+  spanish       String
+  translation   String
+  partOfSpeech  String
+  gender        String? // "m" | "f" | "m/f" | null for non-nouns
+  pronunciation String? // IPA or simplified phonetic guide
+  audioUrl      String?
+  exampleEs     String
+  exampleEn     String
+  cefrLevel     CEFRLevel
+  difficulty    Int       @default(1)
+
+  synonyms     String[]
+  antonyms     String[]
+  relatedWords String[]
+  collocations String[] // e.g. "sacar al perro", "tener un perro"
+
+  region      SpanishRegion @default(LATAM_GENERAL)
+  regionNotes String?
+
+  tags String[] // e.g. "food", "travel", "family"
+
+  createdAt DateTime @default(now())
+
+  userVocabulary UserVocabulary[]
+
+  @@unique([spanish, translation])
+  @@index([cefrLevel])
+  @@index([tags])
+}
+
+model UserVocabulary {
+  id           String     @id @default(cuid())
+  userId       String
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  vocabularyId String
+  vocabulary   Vocabulary @relation(fields: [vocabularyId], references: [id], onDelete: Cascade)
+
+  status VocabStatus @default(NEW)
+
+  // Mastery components (0-100)
+  exposure      Float @default(0)
+  understanding Float @default(0)
+  accuracy      Float @default(0)
+  retention     Float @default(0)
+  production    Float @default(0)
+  mastery       Float @default(0) // weighted aggregate, recomputed on each update
+
+  // Spaced repetition (SM-2 derived)
+  easeFactor    Float     @default(2.5)
+  intervalDays  Float     @default(0)
+  repetitions   Int       @default(0)
+  lastReviewedAt DateTime?
+  nextReviewAt  DateTime  @default(now())
+  timesCorrect  Int       @default(0)
+  timesIncorrect Int      @default(0)
+
+  savedByUser Boolean @default(true) // false when auto-added from content encountered
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, vocabularyId])
+  @@index([userId, nextReviewAt])
+  @@index([userId, status])
+}
+
+// ---------------------------------------------------------------------------
+// Grammar
+// ---------------------------------------------------------------------------
+
+model GrammarTopic {
+  id       String  @id @default(cuid())
+  moduleId String?
+  module   Module? @relation(fields: [moduleId], references: [id])
+
+  slug        String    @unique
+  title       String
+  cefrLevel   CEFRLevel
+  order       Int       @default(0)
+  summary     String
+  explanation String
+  examples        Json // Array<{ es, en, note? }>
+  commonMistakes  Json // Array<{ wrong, right, why }>
+  exceptions      Json // Array<{ rule, example }>
+  regionalNotes   Json // Array<{ region, note }>
+
+  relatedTopicSlugs String[]
+
+  progress UserGrammarProgress[]
+
+  @@index([cefrLevel, order])
+}
+
+model UserGrammarProgress {
+  id             String       @id @default(cuid())
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  grammarTopicId String
+  grammarTopic   GrammarTopic @relation(fields: [grammarTopicId], references: [id], onDelete: Cascade)
+
+  mastery      Float @default(0)
+  accuracy     Float @default(0)
+  attempts     Int   @default(0)
+  correctCount Int   @default(0)
+
+  lastPracticedAt DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([userId, grammarTopicId])
+  @@index([userId, mastery])
+}
+
+// ---------------------------------------------------------------------------
+// Mistakes & Review (spaced repetition)
+// ---------------------------------------------------------------------------
+
+model Mistake {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  category   MistakeCategory
+  sourceType MistakeSourceType
+  sourceId   String? // exerciseId / writingSubmissionId / conversationMessageId etc.
+
+  userInput   String
+  correctForm String
+  explanation String? // filled lazily by "Explain my mistake" (AI) if not deterministic
+
+  cefrLevel        CEFRLevel?
+  relatedGrammarTopicId String?
+  relatedVocabularyId    String?
+
+  occurrenceCount Int     @default(1)
+  resolved        Boolean @default(false)
+
+  createdAt      DateTime @default(now())
+  lastOccurredAt DateTime @default(now())
+
+  reviewItems ReviewItem[]
+
+  @@index([userId, resolved])
+  @@index([userId, category])
+}
+
+/// Unified review queue: vocabulary, grammar concepts, and specific mistakes
+/// all funnel into one prioritized queue.
+model ReviewItem {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  itemType ReviewItemType
+  refId    String // id of Vocabulary/GrammarTopic/Mistake
+
+  mistakeId String?
+  mistake   Mistake? @relation(fields: [mistakeId], references: [id], onDelete: SetNull)
+
+  // SM-2 derived scheduling
+  easeFactor   Float    @default(2.5)
+  intervalDays Float    @default(0)
+  repetitions  Int      @default(0)
+  dueAt        DateTime @default(now())
+  lastReviewedAt DateTime?
+
+  // priority inputs (recomputed on schedule; snapshot kept for querying/sorting)
+  forgettingProbability Float @default(0.5)
+  errorFrequency         Int   @default(0)
+  importance              Float @default(0.5)
+  priorityScore            Float @default(0.5)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, itemType, refId])
+  @@index([userId, dueAt])
+  @@index([userId, priorityScore])
+}
+
+// ---------------------------------------------------------------------------
+// Conversation / AI Tutor / Roleplay
+// ---------------------------------------------------------------------------
+
+model RoleplayCharacter {
+  id          String        @id @default(cuid())
+  slug        String        @unique
+  name        String
+  personality String
+  region      SpanishRegion
+  difficulty  CEFRLevel
+  speakingStyle String
+  correctionBehavior String @default("after") // "after" | "immediate" | "minimal"
+  avatarEmoji String @default("🗣️")
+  systemPromptSeed String
+
+  conversations Conversation[]
+}
+
+model Conversation {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  kind String @default("roleplay") // "roleplay" | "tutor" | "story"
+
+  characterId String?
+  character   RoleplayCharacter? @relation(fields: [characterId], references: [id])
+
+  scenario   String?
+  region     SpanishRegion    @default(LATAM_GENERAL)
+  difficulty CEFRLevel        @default(A1)
+  immersionLevel ImmersionLevel @default(SPANISH_AND_ENGLISH)
+  correctionMode String       @default("after") // "after" | "immediate"
+
+  startedAt DateTime  @default(now())
+  endedAt   DateTime?
+
+  messages ConversationMessage[]
+
+  @@index([userId, startedAt])
+}
+
+model ConversationMessage {
+  id             String            @id @default(cuid())
+  conversationId String
+  conversation   Conversation      @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  role    ConversationRole
+  content String
+
+  /// Populated for USER messages when corrections are generated (either
+  /// immediately or in an end-of-conversation feedback pass).
+  corrections Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([conversationId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Sessions, Progress, Gamification
+// ---------------------------------------------------------------------------
+
+model LearningSession {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type             SessionActivityType
+  activities       Json // Array<{ type, refId?, minutes, xp }>
+  durationMinutes  Int  @default(0)
+  xpEarned         Int  @default(0)
+
+  startedAt DateTime  @default(now())
+  completedAt DateTime?
+
+  exerciseAttempts ExerciseAttempt[]
+
+  @@index([userId, startedAt])
+}
+
+model UserProgress {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  totalXp           Int      @default(0)
+  currentStreak     Int      @default(0)
+  longestStreak     Int      @default(0)
+  lastActivityDate  DateTime?
+  lessonsCompleted  Int      @default(0)
+  exercisesCompleted Int     @default(0)
+  wordsMastered     Int      @default(0)
+  studyMinutesTotal Int      @default(0)
+
+  updatedAt DateTime @updatedAt
+}
+
+model Achievement {
+  id          String @id @default(cuid())
+  key         String @unique
+  title       String
+  description String
+  icon        String
+  criteria    Json // { metric: string; threshold: number }
+
+  users UserAchievement[]
+}
+
+model UserAchievement {
+  id            String      @id @default(cuid())
+  userId        String
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  achievementId String
+  achievement   Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+
+  unlockedAt DateTime @default(now())
+
+  @@unique([userId, achievementId])
+}
+
+// ---------------------------------------------------------------------------
+// Assessments (placement test + level-completion assessments)
+// ---------------------------------------------------------------------------
+
+model Assessment {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type        AssessmentType
+  targetLevel CEFRLevel?
+
+  startedAt   DateTime  @default(now())
+  completedAt DateTime?
+
+  overallLevel CEFRLevel?
+  overallSub   Float?
+  strengths    String[]
+  weaknesses   String[]
+  recommendation String?
+
+  responses Json // raw item-by-item log: { itemId, skill, cefr, correct, answer }[]
+
+  results AssessmentResult[]
+
+  @@index([userId, type, startedAt])
+}
+
+model AssessmentResult {
+  id           String     @id @default(cuid())
+  assessmentId String
+  assessment   Assessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+
+  skill     SkillType
+  cefrLevel CEFRLevel
+  score     Float // 0-100
+
+  @@index([assessmentId])
+}
+
+// ---------------------------------------------------------------------------
+// Interactive Stories
+// ---------------------------------------------------------------------------
+
+model Story {
+  id          String        @id @default(cuid())
+  slug        String        @unique
+  title       String
+  description String
+  cefrLevel   CEFRLevel
+  region      SpanishRegion @default(LATAM_GENERAL)
+  startStepKey String
+
+  steps StoryStep[]
+  progress UserStoryProgress[]
+}
+
+model StoryStep {
+  id      String @id @default(cuid())
+  storyId String
+  story   Story  @relation(fields: [storyId], references: [id], onDelete: Cascade)
+
+  stepKey String
+  speaker String?
+  textEs  String
+  textEn  String
+  /// Array<{ label: string; nextStepKey: string }>
+  choices Json
+  isEnding Boolean @default(false)
+  /// Array<{ es: string; en: string }>
+  vocabHighlights Json @default("[]")
+
+  @@unique([storyId, stepKey])
+}
+
+model UserStoryProgress {
+  id      String @id @default(cuid())
+  userId  String
+  user    User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  storyId String
+  story   Story  @relation(fields: [storyId], references: [id], onDelete: Cascade)
+
+  currentStepKey String
+  choicesMade    Json    @default("[]")
+  completed      Boolean @default(false)
+
+  startedAt   DateTime  @default(now())
+  completedAt DateTime?
+
+  @@unique([userId, storyId])
+}
+
+// ---------------------------------------------------------------------------
+// Writing / Listening / Speaking labs
+// ---------------------------------------------------------------------------
+
+model WritingSubmission {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  prompt    String
+  cefrLevel CEFRLevel
+  content   String
+
+  /// { grammar, vocabulary, coherence, naturalness, cefr, corrections[], improvedVersion, suggestedVocabulary[] }
+  evaluation Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
+
+model ListeningExercise {
+  id        String         @id @default(cuid())
+  title     String
+  cefrLevel CEFRLevel
+  region    SpanishRegion  @default(LATAM_GENERAL)
+  speed     ListeningSpeed @default(NORMAL)
+  topic     String
+
+  transcriptEs String
+  transcriptEn String
+  audioUrl     String?
+
+  /// Array<{ id, type, prompt, options?, correctAnswer, explanation }>
+  questions Json
+  /// Array<{ es, en }> key phrases likely to be missed
+  keyExpressions Json @default("[]")
+
+  attempts ListeningAttempt[]
+
+  @@index([cefrLevel])
+}
+
+model ListeningAttempt {
+  id                  String            @id @default(cuid())
+  userId              String
+  user                User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  listeningExerciseId String
+  listeningExercise   ListeningExercise @relation(fields: [listeningExerciseId], references: [id], onDelete: Cascade)
+
+  comprehensionScore Float
+  missedExpressions  String[]
+  answers            Json
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
+
+model SpeakingAttempt {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  prompt     String
+  cefrLevel  CEFRLevel
+  transcript String // client-side speech-to-text transcript of the user's recording
+  audioUrl   String?
+
+  /// { pronunciation, fluency, grammar, vocabulary, comprehensibility, pace, feedback }
+  evaluation Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Content import & AI-generated lessons
+// ---------------------------------------------------------------------------
+
+model ContentImport {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  sourceType ContentImportSource
+  title      String?
+  rawText    String
+
+  cefrEstimate CEFRLevel?
+  /// { vocabulary: [], expressions: [], grammarTopics: [], culturalNotes: [] }
+  extraction Json?
+
+  createdAt DateTime @default(now())
+
+  generatedLessons GeneratedLesson[]
+}
+
+model GeneratedLesson {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  contentImportId String?
+  contentImport   ContentImport? @relation(fields: [contentImportId], references: [id], onDelete: SetNull)
+
+  topic     String
+  cefrLevel CEFRLevel
+
+  /// { vocabulary, grammar, dialogue, listeningTask, exercises, speakingTask, writingTask }
+  content Json
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
