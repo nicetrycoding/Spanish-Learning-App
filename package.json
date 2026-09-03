@@ -17,8 +17,8 @@
     "vercel-build": "prisma migrate deploy && next build"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.123.0",
     "@auth/prisma-adapter": "^2.11.3",
+    "@google/genai": "2.21.0",
     "@hookform/resolvers": "^5.9.1",
     "@prisma/client": "^6.19.3",
     "@radix-ui/react-avatar": "^1.2.6",

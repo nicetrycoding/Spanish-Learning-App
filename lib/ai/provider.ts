@@ -1,17 +1,17 @@
 import "server-only";
-import Anthropic from "@anthropic-ai/sdk";
+import { GoogleGenAI } from "@google/genai";
 
-let cachedClient: Anthropic | null | undefined;
+let cachedClient: GoogleGenAI | null | undefined;
 
-function getClient(): Anthropic | null {
+function getClient(): GoogleGenAI | null {
   if (cachedClient !== undefined) return cachedClient;
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  cachedClient = apiKey ? new Anthropic({ apiKey }) : null;
+  const apiKey = process.env.GEMINI_API_KEY;
+  cachedClient = apiKey ? new GoogleGenAI({ apiKey }) : null;
   return cachedClient;
 }
 
 export function isAiConfigured(): boolean {
-  return Boolean(process.env.ANTHROPIC_API_KEY);
+  return Boolean(process.env.GEMINI_API_KEY);
 }
 
 export interface GenerateOptions {
@@ -24,25 +24,24 @@ export interface GenerateOptions {
  * Low-level call to the configured AI provider. Returns raw text, or null
  * if no provider is configured or the call failed — callers must have a
  * deterministic fallback for the null case (see lib/ai/service.ts). This
- * is the only file that imports the Anthropic SDK / touches the API key,
- * so swapping providers means editing this file alone.
+ * is the only file that imports the Gemini SDK / touches the API key, so
+ * swapping providers means editing this file alone.
  */
 export async function generateText(options: GenerateOptions): Promise<string | null> {
   const client = getClient();
   if (!client) return null;
 
   try {
-    const model = process.env.AI_MODEL || "claude-sonnet-5";
-    const response = await client.messages.create({
+    const model = process.env.AI_MODEL || "gemini-2.5-flash";
+    const response = await client.models.generateContent({
       model,
-      max_tokens: options.maxTokens ?? 1024,
-      system: options.system,
-      messages: [{ role: "user", content: options.prompt }],
+      contents: options.prompt,
+      config: {
+        systemInstruction: options.system,
+        maxOutputTokens: options.maxTokens ?? 1024,
+      },
     });
-    return response.content
-      .map((block) => (block.type === "text" ? block.text : ""))
-      .join("")
-      .trim();
+    return (response.text ?? "").trim();
   } catch (error) {
     console.error("[ai] provider call failed:", error);
     return null;
