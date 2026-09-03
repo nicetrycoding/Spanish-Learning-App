@@ -42,9 +42,9 @@ cp .env.example .env
 | `DATABASE_URL`          | Yes      | PostgreSQL connection string, e.g. `postgresql://user:pass@localhost:5432/spanish_app`                |
 | `AUTH_SECRET`           | Yes      | Random 32-byte secret for Auth.js session signing. Generate with `openssl rand -base64 32`.            |
 | `NEXTAUTH_URL`          | Yes      | The app's own URL (e.g. `http://localhost:3000` locally). Must match where you actually run it.        |
-| `AI_PROVIDER`           | No       | Currently `anthropic` is supported. The app runs fully without this set — see below.                    |
-| `ANTHROPIC_API_KEY`     | No       | Enables real AI generation/evaluation. Without it, deterministic fallbacks power those features.        |
-| `AI_MODEL`              | No       | Defaults to `claude-sonnet-5`.                                                                          |
+| `AI_PROVIDER`           | No       | Currently `gemini` is supported. The app runs fully without this set — see below.                       |
+| `GEMINI_API_KEY`        | No       | Enables real AI generation/evaluation. Get one at [aistudio.google.com/apikey](https://aistudio.google.com/apikey). Without it, deterministic fallbacks power those features. |
+| `AI_MODEL`              | No       | Defaults to `gemini-2.5-flash`.                                                                          |
 | `NEXT_PUBLIC_APP_URL`   | No       | Used for absolute metadata URLs.                                                                        |
 
 ## Database setup
@@ -121,7 +121,7 @@ before every build — set it as the project's Build Command.
    | `AUTH_SECRET` | A random 32-byte secret — generate your own with `openssl rand -base64 32` |
    | `NEXTAUTH_URL` | Your Vercel URL, e.g. `https://your-project.vercel.app` (you'll only know this after the first deploy — see step 6) |
    | `NEXT_PUBLIC_APP_URL` | Same value as `NEXTAUTH_URL` |
-   | `ANTHROPIC_API_KEY` | Optional — omit it and the app runs on deterministic fallbacks (see [AI configuration](#ai-configuration)) |
+   | `GEMINI_API_KEY` | Optional — omit it and the app runs on deterministic fallbacks (see [AI configuration](#ai-configuration)) |
 4. **Build Command** — Project Settings → Build & Development Settings →
    override the Build Command to `pnpm vercel-build` (or `npm run
    vercel-build` / `yarn vercel-build`, matching whichever package manager
@@ -152,7 +152,7 @@ Every AI-touched feature goes through a single abstraction,
 `lib/ai/service.ts` (`AIService`), which is called from server-side
 services/actions only — no AI provider key is ever sent to the browser.
 
-**Without `ANTHROPIC_API_KEY` set**, `AIService` transparently falls back to
+**Without `GEMINI_API_KEY` set**, `AIService` transparently falls back to
 deterministic, rule-based logic for every method (mistake explanations,
 writing/speaking evaluation, conversation replies, lesson generation, content
 extraction, learner analysis). This is a deliberate design choice, not a
@@ -160,10 +160,12 @@ missing feature: the whole app — including the AI tutor, roleplay
 conversations, and the AI lesson generator — works immediately after
 `pnpm db:seed`, with no external API calls or cost.
 
-**With `ANTHROPIC_API_KEY` set**, the same methods call the configured model
-and validate its JSON output against a Zod schema (`lib/ai/schemas.ts`)
-before it ever reaches the database or the UI; a failed or invalid response
-falls back to the same deterministic logic rather than breaking the page.
+**With `GEMINI_API_KEY` set**, the same methods call the configured Gemini
+model (`@google/genai`, default `gemini-2.5-flash`) and validate its JSON
+output against a Zod schema (`lib/ai/schemas.ts`) before it ever reaches the
+database or the UI; a failed or invalid response falls back to the same
+deterministic logic rather than breaking the page. Get a free key at
+[aistudio.google.com/apikey](https://aistudio.google.com/apikey).
 
 To add a different provider, only `lib/ai/provider.ts` needs to change — the
 rest of the app depends on `AIService`'s typed method signatures, not on any
