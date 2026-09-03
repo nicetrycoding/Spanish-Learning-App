@@ -100,6 +100,52 @@ pnpm build
 pnpm start
 ```
 
+## Deploying to Vercel
+
+The app is Vercel-ready as-is. `prisma/migrations/` holds a tracked baseline
+migration, and `package.json` has a `vercel-build` script
+(`prisma migrate deploy && next build`) that applies pending migrations
+before every build — set it as the project's Build Command.
+
+1. **Push to GitHub** (already done if you're working from this repo) and,
+   in [vercel.com](https://vercel.com), sign in and **Add New… → Project →
+   Import** the repository. Vercel auto-detects Next.js.
+2. **Database.** In the project's **Storage** tab, add a Postgres database
+   (the Neon integration is the easiest — free tier, connects instantly) —
+   or paste in a connection string from any Postgres provider you already
+   have. Either way you end up with a `DATABASE_URL`.
+3. **Environment variables** — Project Settings → Environment Variables:
+   | Key | Value |
+   | --- | --- |
+   | `DATABASE_URL` | From step 2 (skip if the Neon integration set it automatically) |
+   | `AUTH_SECRET` | A random 32-byte secret — generate your own with `openssl rand -base64 32` |
+   | `NEXTAUTH_URL` | Your Vercel URL, e.g. `https://your-project.vercel.app` (you'll only know this after the first deploy — see step 6) |
+   | `NEXT_PUBLIC_APP_URL` | Same value as `NEXTAUTH_URL` |
+   | `ANTHROPIC_API_KEY` | Optional — omit it and the app runs on deterministic fallbacks (see [AI configuration](#ai-configuration)) |
+4. **Build Command** — Project Settings → Build & Development Settings →
+   override the Build Command to `pnpm vercel-build` (or `npm run
+   vercel-build` / `yarn vercel-build`, matching whichever package manager
+   Vercel picked). This is what runs migrations against `DATABASE_URL`
+   before every build.
+5. **Deploy.** Trigger the first deployment (push a commit, or click Deploy
+   in the dashboard). This build will fail fast with a clear error if
+   `DATABASE_URL` or `AUTH_SECRET` aren't set yet — that's expected the very
+   first time.
+6. **Fix the URL loop.** Once deployed, copy the assigned `https://….vercel.app`
+   URL, set it as both `NEXTAUTH_URL` and `NEXT_PUBLIC_APP_URL` in step 3,
+   then redeploy (Deployments → ⋯ → Redeploy). Auth callback URLs won't work
+   correctly until this matches exactly.
+7. **Seed the production database** (once, after the schema is live) — from
+   any machine with `psql`/Node access to `DATABASE_URL`:
+   ```bash
+   DATABASE_URL="<your production connection string>" pnpm db:seed
+   ```
+   This is idempotent (upserts content, so re-running it is safe) and is
+   what makes the demo account (`demo@sendero.app` / `Demo1234`) and the
+   full curriculum available immediately.
+8. **Custom domain (optional).** Project Settings → Domains, then repeat
+   step 6 with the custom domain once it's attached.
+
 ## AI configuration
 
 Every AI-touched feature goes through a single abstraction,
